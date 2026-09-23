@@ -112,7 +112,6 @@ DeepWriterID-v2/
 │   │   ├── loader.py                   # 解析 .wptt
 │   │   └── dataset.py                  # WPTTDataset (含 DropSegment)
 │   ├── models/                         # 模型定义
-│   │   ├── dcnn.py                     # v1.0 DCNN（保留作为基线对比）
 │   │   └── backbone.py                 # v2.0 ConvNeXt 骨干网络
 │   ├── preprocessing/                  # 预处理
 │   │   ├── corner.py                   # 拐点检测
