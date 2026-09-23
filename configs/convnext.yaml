@@ -1,0 +1,30 @@
+# ConvNeXt 架构升级配置
+
+model:
+  name: "convnext_backbone"
+  num_classes: 1019
+  feature_dim: 512
+
+data:
+  image_size: 54
+  batch_size: 256
+  num_workers: 6
+
+training:
+  epochs: 50
+  initial_lr: 0.0003          # ConvNeXt 比 DCNN 收敛更敏感，学习率略降
+  weight_decay: 0.05          # ConvNeXt 推荐权重衰减
+  warmup_epochs: 5            # 前 5 轮线性预热
+  cosine_T_max: 50
+  device: "cuda"
+
+checkpoint:
+  save_dir: "outputs/checkpoints"
+  save_latest: "convnext_latest.pth"
+  save_best: "convnext_best.pth"
+
+logging:
+  log_dir: "outputs/logs"
+  log_file: "convnext_training_log.csv"
+
+seed: 42
