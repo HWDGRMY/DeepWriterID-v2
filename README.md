@@ -1,110 +1,62 @@
-# DeepWriterID-v2：从闭集识别到鲁棒开放验证
+# DeepWriterID v2.0：ConvNeXt 架构升级
 
 ## 项目简介
 
-本项目是 **DeepWriterID-Replication (v1.0)** 的架构升级版本（v2.0）。在保留 v1.0 完整基线（DCNN + 95.09% 页面级准确率）的基础上，v2.0 引入 **ConvNeXt 骨干网络** 替换原始 DCNN，并规划集成 **伪时序双路融合**、**拼接伪造检测** 与 **生成式伪造检测**，构建从识别到安全验证的完整攻防闭环。
+本项目是 [DeepWriterID-Replication](https://github.com/HWDGRMY/DeepWriterID-Replication)（v1.0）的架构升级版本。v1.0 使用原始 DCNN 骨干，在 CASIA-OLHWDB 2.0-2.2（1019 位书写者）上达到 **95.09%** 页面级准确率。v2.0 用 **ConvNeXt V2** 替换 DCNN 骨干，在不改动数据流水线的前提下引入现代化架构，为后续伪时序融合与安全检测提供更强的特征提取基础。
 
-> **v1.0 仓库**：[DeepWriterID-Replication](https://github.com/HWDGRMY/DeepWriterID-Replication)
-> **v2.0 当前状态**：架构升级开发中（ConvNeXt 骨干已完成代码实现，正在训练验证）
+> **v1.0 仓库（DCNN 基线、数据准备、硬件约束等）**：https://github.com/HWDGRMY/DeepWriterID-Replication  
+> **v2.0 当前状态**：ConvNeXt V2 骨干已实现，正在训练验证
 
 ## 版本演进
 
 | 版本 | 核心架构 | 关键成果 | 状态 |
 | :--- | :--- | :--- | :--- |
 | **v1.0** | 原始 DCNN | 在 CASIA-OLHWDB 2.0-2.2（1019 位书写者）上达到 **95.09%** 页面级准确率 | ✅ 已完成 |
-| **v2.0** | ConvNeXt + 伪时序双路融合 | 目标：骨干升级后准确率不低于 v1.0，并验证伪时序特征的增量价值 | 🚧 开发中 |
+| **v2.0** | ConvNeXt V2 | 目标：骨干升级后准确率不低于 v1.0，并验证伪时序特征的增量价值 | 🚧 开发中 |
 | **v2.0 扩展** | 拼接检测 + 生成检测 + 对抗博弈 | 构建红蓝对抗闭环，评估模型在物理篡改与生成式伪造下的鲁棒性 | 📋 规划中 |
 
-## 核心成绩（v1.0 基线）
-
-在 1019 个类别（远超原论文 187 类）的分类任务下，通过 DropSegment、路径签名特征提取与页面级投票策略，v1.0 最终测试集页面级准确率达到 **95.09%**。
-
-- 原论文在 NLPR (187 类) 上的成绩为 95.72%
-- 本项目在 1019 类分类任务上实现了极具竞争力的泛化性能
-
-## 📊 数据集对比说明
-
-本项目使用的数据集与原论文（DeepWriterID）存在重大差异。
-
-| 对比维度 | 原论文使用的数据集（NLPR） | 本项目使用的数据集（CASIA-OLHWDB 2.0-2.2） |
-| :--- | :--- | :--- |
-| **作者数量** | 中文任务 **187 位** 书写者 | **1019 位** 书写者（全量合并后重新按 4:1 划分） |
-| **任务类别数** | 187 类分类 | **1019 类分类**（类别数增加 5.4 倍） |
-| **测试集内容** | **固定内容（fixed-content）**<br>所有 187 位作者的测试页抄写的是同一篇文章 | **内容各不相同**<br>不同作者的测试页文本内容互不相同（来源不同的新闻、古诗模板） |
-| **泛化难度** | 较低。模型只需在“相同内容”下辨别笔迹风格 | 极高。模型必须在“不同内容”下识别出同一个人的笔迹风格，且类别极多 |
-| **训练样本量** | 较小 | **约 85 万** 个动态增强的伪字符样本 |
-
-> **注**：原论文（DeepWriterID）使用的是 **NLPR 手写数据库**，但笔者在公开渠道未能找到该数据集的直接下载链接。因此，本项目采用同源的 **CASIA-OLHWDB 2.0-2.2 在线手写文本数据集** 进行复刻与验证。
-
-### 🎯 为什么这个对比很重要？
-
-原论文在 187 类、固定文本内容的测试集上取得了 **95.72%** 的页面级准确率。
-本项目在 **1019 类、测试文本内容完全随机** 的苛刻条件下，依然取得了 **95.09%** 的页面级准确率。
-
-这不仅证明了 DeepWriterID 方法（DropSegment、路径签名、页面级投票）的优秀之处，也表明该复刻模型在更接近真实应用场景（多类别、跨文本内容）下，依然具备极强的泛化性能。
+> 数据集说明、硬件配置要求、数据划分策略等通用信息，请参阅 [v1.0 仓库 README](https://github.com/HWDGRMY/DeepWriterID-Replication)。
 
 ## 🧠 v2.0 架构升级说明
 
 ### 为什么升级？
 
-原始 DCNN 架构（2019 年 DeepWriterID 原论文）在当今顶刊审稿中显得缺乏新意。v2.0 用 **ConvNeXt** 替换 DCNN，在不改变数据流水线的前提下，引入现代骨干网络，提升特征表达能力，并为后续伪时序融合与安全检测提供更强的特征提取基础。
+原始 DCNN 架构（2019 年 DeepWriterID 原论文）在当今顶刊审稿中显得缺乏新意。v2.0 用 **ConvNeXt V2** 替换 DCNN，引入现代化骨干网络，提升特征表达能力，并为后续伪时序融合与安全检测提供更强的特征提取基础。
 
 ### 升级内容
 
 | 模块 | v1.0 | v2.0 |
 | :--- | :--- | :--- |
-| **骨干网络** | DCNN（5 层卷积 + 3 层全连接） | ConvNeXt-Tiny 变体（适配 64 通道 54×54 输入） |
+| **骨干网络** | DCNN（5 层卷积 + 3 层全连接） | ConvNeXt V2-Tiny（适配 64 通道 54×54 输入） |
 | **特征维度** | 512 维 | 512 维（对齐 v1.0） |
 | **分类头** | Dropout 0.2 + Linear | Dropout 0.2 + Linear |
 | **数据流水线** | 路径签名 + DropSegment | 完全复用 v1.0（不变） |
 | **训练策略** | 余弦退火 + 断点续训 | 完全复用 v1.0（不变） |
 
+### 为什么选择 ConvNeXt V2？
+
+ConvNeXt V2 是 2023 年 CVPR 论文《ConvNeXt V2: Co-designing and Scaling ConvNets with Masked Autoencoders》提出的现代化卷积网络。它通过引入大卷积核、LayerNorm、GELU、倒瓶颈结构和 **GRN 层**（Global Response Normalization），将 Transformer 的设计理念融入纯卷积网络，在保持 CNN 高效推理优势的同时，达到与 Swin Transformer 相当的精度。
+
+选择它的理由：
+1. **输入尺寸适配**：本任务的特征图为 54×54 小尺寸，不适合 ViT 类架构的全局注意力。
+2. **任务特性**：笔迹识别本质上是纹理和几何形状识别，卷积的平移不变性和局部感受野天然适合。
+3. **部署友好**：后续需要移植至国产 NPU（麒麟 + 昇腾）平台，卷积算子比自注意力算子更成熟。
+4. **消融价值**：可与 Swin Transformer 做对比实验，验证纯卷积架构在细粒度分类任务上的优势。
+
 ### 后续规划
 
-- **伪时序双路融合**：从原始轨迹中提取伪速度与曲率序列，用 Transformer Encoder 提取动态特征，与 ConvNeXt 静态特征融合。
+- **伪时序双路融合**：从原始轨迹中提取伪速度与曲率序列，用 Transformer Encoder 提取动态特征，与 ConvNeXt V2 静态特征融合。
 - **拼接伪造检测**：冻结骨干，挂载 MLP 检测头，识别物理拼接攻击。
 - **生成式伪造检测**：训练 CVAE 生成假笔迹，构建对抗博弈框架，评估检测器鲁棒性。
 - **国产平台移植**：将模型适配至麒麟 + 昇腾平台。
-
-## 💻 硬件约束：预处理流水线对系统的真实需求
-
-本项目的计算瓶颈并不在于神经网络的前向传播或反向传播，而在于 **CPU 密集型的数据预处理流水线**。以下分析基于 v1.0 在云端环境（18 vCPU + 60GB RAM + RTX 4090D）的实际测试数据：
-
-### 1. 内存带宽与并发瓶颈
-
-- **内存是分布式数据加载的第一道关卡**。为了缓解 CPU 渲染延迟，`DataLoader` 被配置为 16 个并行 Worker 进程（`num_workers=16`）。
-- 当系统物理内存达到 **60GB** 时，该配置可稳定运行，单轮耗时约 **15 分钟**。
-- 若内存容量低于 60GB，高并发下的多进程内存争用将导致系统触发 `Bus error` 或 OOM Killer，进程被强制中断。**即使将 CPU 核心数提升至 96 核，如果内存仅 32GB，内存依然会成为无法逾越的瓶颈。**
-
-### 2. 单核性能对预处理时间的决定性作用
-
-- 每一轮训练需要处理约 **85 万个动态增强的伪字符**，每次迭代均包含：拐点检测、OpenCV 图像渲染、直方图均衡化及路径签名计算。
-- 由于上述操作难以高度并行化，**单核主频与 CPU 架构** 对此类任务的完成效率起着决定性作用。
-- 本项目之所以能维持 15 分钟一轮的吞吐量，得益于 **AMD EPYC 9754 等服务器级处理器的高单核主频与出色的浮点计算能力**。若使用主频较低的老旧架构处理器，即便 vCPU 数量充足，单轮耗时也可能延长至 30 分钟以上，导致 GPU 长期处于饥饿状态。
-
-### 3. 显卡利用率的真实情况
-
-- 在 `batch_size=256` 的设置下，RTX 4090D 的**显存占用稳定在 9.5GB 左右**，而 GPU 核心计算单元的使用率长期低于 **40%**。
-- 这说明 GPU 的算力大幅冗余，计算瓶颈完全位于前端的 CPU 数据流水线上。显存容量即便进一步提升，对训练加速的影响也微乎其微。
-
-### 📌 硬件配置推荐
-
-为保证复刻本项目 **95.09%** 成绩的体验，建议硬件配置满足以下标准：
-
-- **内存（RAM）**：**≥ 60GB**（避免多进程并发时的内存溢出错误）。
-- **CPU**：**≥ 16 vCPU**，且具备**较高的单核主频与先进微架构**（如 AMD EPYC 系列或 Intel 至强系列，不建议使用低主频老旧架构）。
-- **GPU（显存）**：**≥ 12GB**（例如 RTX 3060 12GB、RTX 4090 等，显存容量超过 12GB 对速度无明显增益）。
-
-> **备注**：如果你在云服务器上运行本项目，即使租用拥有众多 CPU 核心的高配实例，也要优先确认其内存容量是否达到 60GB，以及 CPU 是否为主频较高的现代架构。否则，你将很难达到预期的训练速度。
 
 ## 项目目录结构
 
 ```text
 DeepWriterID-v2/
 ├── configs/                            # 参数配置文件
-│   ├── default.yaml                    # v1.0 DCNN 超参数（保留作为基线）
-│   └── convnext.yaml                   # v2.0 ConvNeXt 超参数
-├── data/                               # 数据目录
+│   └── convnext.yaml                   # ConvNeXt V2 超参数
+├── data/                               # 数据目录（详见 v1.0 仓库）
 │   ├── raw/                            # 存放原始 .wptt 轨迹文件
 │   └── features/                       # 存放 metadata.csv
 ├── src/                                # 核心源码包
@@ -112,7 +64,7 @@ DeepWriterID-v2/
 │   │   ├── loader.py                   # 解析 .wptt
 │   │   └── dataset.py                  # WPTTDataset (含 DropSegment)
 │   ├── models/                         # 模型定义
-│   │   └── backbone.py                 # v2.0 ConvNeXt 骨干网络
+│   │   └── backbone.py                 # ConvNeXt V2 骨干网络
 │   ├── preprocessing/                  # 预处理
 │   │   ├── corner.py                   # 拐点检测
 │   │   └── segmentation.py             # 伪字符切分
@@ -128,7 +80,7 @@ DeepWriterID-v2/
 │       └── visualizer.py               # 可视化工具
 ├── scripts/                            # 可执行入口脚本
 │   ├── preprocess.py                   # 预处理 (生成 metadata.csv)
-│   ├── train.py                        # 训练入口（支持 v1.0 / v2.0）
+│   ├── train.py                        # 训练入口
 │   └── evaluate.py                     # 单独评估模型
 ├── outputs/                            # 产出物（不上传 GitHub）
 │   ├── logs/                           # 训练日志 CSV
@@ -155,65 +107,48 @@ conda activate deepwriterid
 
 ```bash
 pip install -e .
+pip install timm
 ```
 
 ### 2. 数据准备
 
-本项目使用的数据集为 **CASIA-OLHWDB 2.0-2.2 在线手写文本数据集**。
+请按照 [v1.0 仓库的数据准备说明](https://github.com/HWDGRMY/DeepWriterID-Replication) 下载 CASIA-OLHWDB 2.0-2.2 数据集，并运行：
 
-- 官方下载地址：[https://nlpr.ia.ac.cn/databases/handwriting/Home.html](https://nlpr.ia.ac.cn/databases/handwriting/Home.html)，目前该数据集已可在官网直接下载，无需申请。
-- 下载后，将解压出的 `WPTT2.0-Train`、`WPTT2.0-Test` 等文件夹放置在项目的 `data/raw/` 目录下，结构如下：
+```bash
+python scripts/preprocess.py
+```
 
-  ```text
-  data/raw/WPTT2.0-Train/
-  data/raw/WPTT2.0-Test/
-  data/raw/WPTT2.1-Train/
-  data/raw/WPTT2.1-Test/
-  data/raw/WPTT2.2-Train/
-  data/raw/WPTT2.2-Test/
-  ```
+### 3. 训练模型（ConvNeXt V2）
 
-- 运行预处理脚本生成 `metadata.csv`：
-
-  ```bash
-  python scripts/preprocess.py
-  ```
-
-> **版权提醒**：该数据集版权归中国科学院自动化研究所（NLPR）所有，请仅用于学术研究目的，勿用于商业用途。
-
-### 3. 训练模型（v2.0 ConvNeXt）
-
-修改 `configs/convnext.yaml` 中的参数（如 `batch_size`, `epochs` 等），然后运行：
+修改 `configs/convnext.yaml` 中的参数，然后运行：
 
 ```bash
 python scripts/train.py --config configs/convnext.yaml
 ```
 
-- 训练日志将保存在 `outputs/logs/convnext_training_log.csv`。
-- 每轮结束后，最新模型将保存至 `outputs/checkpoints/convnext_latest.pth`。
-- 如果该轮测试集准确率刷新记录，将额外保存至 `outputs/checkpoints/convnext_best.pth`。
+- 训练日志将保存在 `outputs/logs/convnext_training_log.csv`
+- 最新模型保存至 `outputs/checkpoints/convnext_latest.pth`
+- 刷新记录时额外保存至 `outputs/checkpoints/convnext_best.pth`
 
 **默认配置说明：**
 
 - `epochs：50`
 - `batch_size：256`
-- `initial_lr：0.0003`（ConvNeXt 比 DCNN 收敛更敏感，学习率略降）
-- `weight_decay：0.05`（ConvNeXt 推荐权重衰减）
+- `initial_lr：0.0001`（ConvNeXt V2 收敛敏感，学习率略降）
+- `weight_decay：0.05`
+- `warmup_epochs：5`
+- `drop_path：0.1`
 
-如果你觉得 50 轮没有收敛完全，可以直接在 `configs/convnext.yaml` 里把 `epochs` 改成 `80` 或 `100`，脚本会自动断点续训。
-
-> 本项目训练脚本实现了标准的断点续训功能。训练中断后重新运行，模型权重、优化器动量以及学习率调度器的状态都会被完全恢复，学习率会沿着余弦退火曲线从上次中断的位置继续平滑下降。
+训练脚本实现了标准的断点续训功能。训练中断后重新运行，模型权重、优化器动量以及学习率调度器的状态都会被完全恢复。
 
 ### 📉 学习率调度策略（余弦退火）
 
-本项目的训练脚本采用了 **PyTorch 内置的 `CosineAnnealingLR`** 作为学习率调度器。这是本项目能够稳定收敛的关键因素之一。
+本项目采用 **PyTorch 内置的 `CosineAnnealingLR`** 作为学习率调度器。
 
-**具体配置与表现如下：**
-
-- **初始学习率**：`0.0003`（ConvNeXt）
-- **总周期（T_max）**：等于你设置的 `epochs`（默认 50 轮）
-- **变化曲线**：学习率会从 `0.0003` 开始，沿着一条平滑的余弦曲线，在训练结束时下降至接近 `0`。
-- **核心优势**：相比阶梯式下降（如每 10 轮减半），余弦退火的平滑衰减能够有效避免模型在训练后期因学习率突变而陷入震荡，帮助权重稳定收敛到最优解。
+- **初始学习率**：`0.0001`
+- **总周期（T_max）**：等于设置的 `epochs`（默认 50 轮）
+- **变化曲线**：从 `0.0001` 开始，沿平滑余弦曲线在训练结束时下降至接近 `0`
+- **核心优势**：相比阶梯式下降，平滑衰减能有效避免训练后期因学习率突变而震荡，帮助权重稳定收敛到最优解
 
 ### 4. 评估模型
 
@@ -223,68 +158,86 @@ python scripts/train.py --config configs/convnext.yaml
 python scripts/evaluate.py --config configs/convnext.yaml
 ```
 
-## 🎲 随机种子与数据划分说明
-
-本项目在数据预处理阶段（`scripts/preprocess.py`）采用“按作者分组，随机打乱，每名作者取 1 页作测试集，其余 4 页作训练集”的划分策略。
-
-### 1. 随机种子状态（默认）
-
-当前 `preprocess.py` **未设置固定的随机种子**。每次运行都会产生全新的随机划分，最终测试准确率可能在 **94.5%~95.5%** 之间轻微浮动。
-
-### 2. 固定划分的方法
-
-若希望每次划分结果一致，可在 `preprocess.py` 的 `main()` 函数开头添加：
-
-```python
-random.seed(42)
-```
-
-由于不同操作系统（Linux vs Windows）下文件遍历顺序不同，该操作也无法保证 100% 完全一致。
-
-### 3. 严格复现 95.09% 成绩的方法
-
-本项目宣传的 **95.09% (969/1019)** 基于 **特定的 `metadata.csv` 划分文件** 与 **已训练好的 `dcnn_best.pth` 模型权重**。
-
-若要精准复现该成绩：
-
-1. 直接使用项目提供的 `metadata.csv`（位于 `data/features/`）。
-2. 根据你的本地路径，修改该文件中的文件路径。
-3. 配合笔者训练好的 `dcnn_best.pth` 模型。
-4. 运行 `python scripts/evaluate.py`。
-
-> 自行重新训练模型时，由于硬件配置、CUDA 版本和随机性初始化的差异，最终准确率会出现一定波动，这是深度学习训练中的正常现象。
-
 ## 📦 模型文件说明（不公开）
 
-本项目中的预训练模型文件（`outputs/checkpoints/dcnn_best.pth` 和 `convnext_best.pth`）**不包含在本 GitHub 仓库中**，原因如下：
-
-1. **算力成本极高**：模型是基于 **RTX 4090D 显卡（24GB VRAM）** 及 **18 核 AMD EPYC 处理器**，历经 **50 轮完整训练（约 3 天计算时间）** 才训练得到。该训练过程消耗了相当的云服务器租赁成本。
-2. **模型资产保护**：该模型在 **1019 个书写者** 的 CASIA 数据集上达到了 **95.09%** 的页面级准确率，具有较高的研究与复刻价值。作者希望保护该训练成果的完整性，避免未经授权的随意扩散。
+本项目的预训练模型文件（`convnext_best.pth`）**不包含在本 GitHub 仓库中**，原因与 v1.0 相同：算力成本高、模型资产需保护。
 
 ### 📎 如何获取模型文件？
 
-您可以通过以下任意一种方式联系作者，获取模型文件：
-
 - **通过 GitHub Issues 提交申请**  
-  请访问 [GitHub Issues 页面](https://github.com/HWDGRMY/DeepWriterID-Replication/issues) 新建一个 Issue，并简要说明您的使用目的（如科研、商业项目、个人测试等）。
-
+  请访问 [Issues 页面](https://github.com/HWDGRMY/DeepWriterID-v2/issues) 新建 Issue，简要说明使用目的。
 - **通过邮件直接联系作者**  
-  发送邮件至作者邮箱：**`zhouhao_oss@163.com`**，请附上您的身份、用途及具体场景。
+  发送邮件至 **`zhouhao_oss@163.com`**，请附上身份、用途及具体场景。
 
 > **注意**：模型文件仅限申请用途使用，请勿二次分发。
+
+## 📜 第三方代码与引用
+
+本项目在静态分支中使用了以下开源实现，特此致谢并声明引用：
+
+### timm (PyTorch Image Models)
+
+- **仓库**：https://github.com/huggingface/pytorch-image-models
+- **许可证**：Apache License 2.0
+- **用途**：提供 `convnextv2_tiny` 骨干网络的 PyTorch 实现
+- **引用**：
+  ```
+  @misc{rw2019timm,
+    author = {Ross Wightman},
+    title = {PyTorch Image Models},
+    year = {2019},
+    publisher = {GitHub},
+    journal = {GitHub repository},
+    doi = {10.5281/zenodo.4414861},
+    howpublished = {\url{https://github.com/rwightman/pytorch-image-models}}
+  }
+  ```
+
+### ConvNeXt V1
+
+- **论文**：Liu et al., *A ConvNet for the 2020s*, CVPR 2022
+- **仓库**：https://github.com/facebookresearch/ConvNeXt
+- **许可证**：MIT
+- **引用**：
+  ```
+  @Article{liu2022convnet,
+    author  = {Zhuang Liu and Hanzi Mao and Chao-Yuan Wu and Christoph Feichtenhofer and Trevor Darrell and Saining Xie},
+    title   = {A ConvNet for the 2020s},
+    journal = {CVPR},
+    year    = {2022},
+  }
+  ```
+
+### ConvNeXt V2
+
+- **论文**：Woo et al., *ConvNeXt V2: Co-designing and Scaling ConvNets with Masked Autoencoders*, CVPR 2023
+- **仓库**：https://github.com/facebookresearch/ConvNeXt-V2
+- **许可证**：MIT（代码）；CC-BY-NC（预训练权重，本项目未使用）
+- **引用**：
+  ```
+  @article{Woo2023ConvNeXtV2,
+    title={ConvNeXt V2: Co-designing and Scaling ConvNets with Masked Autoencoders},
+    author={Sanghyun Woo, Shoubhik Debnath, Ronghang Hu, Xinlei Chen, Zhuang Liu, In So Kweon and Saining Xie},
+    year={2023},
+    journal={arXiv preprint arXiv:2301.00808},
+  }
+  ```
+
+> **说明**：本项目从零训练，未加载任何 ImageNet 预训练权重，因此不涉及 CC-BY-NC 的非商业限制。
 
 ## 致谢
 
 - 原始论文：Weixin Yang, Lianwen Jin, et al. *DeepWriterID: An End-to-end Online Text-independent Writer Identification System*.
 - 数据集：中国科学院自动化研究所 CASIA-OLHWDB 手写数据库。
 - ConvNeXt 架构参考：Liu et al., *A ConvNet for the 2020s*, CVPR 2022.
+- ConvNeXt V2 架构参考：Woo et al., *ConvNeXt V2: Co-designing and Scaling ConvNets with Masked Autoencoders*, CVPR 2023.
+- timm 库：Ross Wightman, *PyTorch Image Models*.
 
 ## 💬 反馈与建议
 
-如果你在使用本项目的过程中遇到任何问题，或者有更好的改进思路（比如模型架构优化、更高效的数据增强策略等），非常欢迎你在 GitHub 上提交 **Issue** 或直接发起 **Pull Request**。
+如果你在使用本项目的过程中遇到任何问题，或者有更好的改进思路，非常欢迎你在 GitHub 上提交 **Issue** 或直接发起 **Pull Request**。
 
-**其他联系方式**：你也可以通过作者邮箱 `zhouhao_oss@163.com` 与我沟通。
-我可能不会及时回复每一条消息，但所有有价值的建议都会认真考虑，并用于后续的迭代和优化。如果你在跑这个项目时卡在了某个环节，也欢迎在 Issues 里提问。
+**其他联系方式**：也可以通过作者邮箱 `zhouhao_oss@163.com` 与我沟通。
 
 ## 许可证
 
