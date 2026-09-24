@@ -2,12 +2,13 @@
 ConvNeXt V2 训练器：加载 ImageNet 预训练权重，保留 v1.0 的页面级投票评估逻辑。
 
 关键设计：
-- 预训练：加载 timm 提供的 convnextv2_femto ImageNet-1K 权重
+- 预训练：支持从本地文件加载权重（避免云端无法访问 HuggingFace）
 - 优化器：AdamW(β₁=0.9, β₂=0.999)
 - 学习率：线性缩放 lr = lr_base × batch_size / 256
 - 调度器：Warmup（1 epoch）+ 余弦退火，iteration 级 step
 - 评估：每 EVAL_FREQUENCY 轮做一次页面级投票
 - 早停：连续 PATIENCE 次验证未提升则停止
+- 断点续训：完整保存/恢复模型、优化器、调度器状态
 """
 
 import os
@@ -48,6 +49,7 @@ def train(config):
     DROPOUT_HEAD = config.get('dropout_head', 0.3)
     DROPOUT_CLASSIFIER = config.get('dropout_classifier', 0.4)
     PRETRAINED = config.get('pretrained', True)
+    PRETRAINED_PATH = config.get('pretrained_path', None)
 
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -61,7 +63,7 @@ def train(config):
 
     # ========== 数据路径 ==========
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    metadata_file = os.path.join(BASE_DIR, 'data', 'features', 'metadata.csv')
+    metadata_file = os.path.join(BASE_DIR, 'data', 'features', 'metadata_small.csv')
 
     print("正在加载数据集 ...")
     full_df = pd.read_csv(metadata_file, encoding='utf-8-sig')
@@ -100,11 +102,10 @@ def train(config):
         dropout_head=DROPOUT_HEAD,
         dropout_classifier=DROPOUT_CLASSIFIER,
         pretrained=PRETRAINED,
+        pretrained_path=PRETRAINED_PATH,
     ).to(DEVICE)
     total_params = sum(p.numel() for p in model.parameters())
     print(f"🧠 模型参数量: {total_params / 1e6:.2f}M")
-    if PRETRAINED:
-        print(f"📦 已加载 ImageNet 预训练权重（第一层卷积因 64 通道将随机初始化）")
 
     criterion = nn.CrossEntropyLoss()
 
@@ -120,8 +121,17 @@ def train(config):
     warmup_steps = WARMUP_EPOCHS * steps_per_epoch
     cosine_steps = max((EPOCHS - WARMUP_EPOCHS) * steps_per_epoch, 1)
 
-    warmup_scheduler = LinearLR(optimizer, start_factor=1e-6, end_factor=1.0, total_iters=warmup_steps)
-    cosine_scheduler = CosineAnnealingLR(optimizer, T_max=cosine_steps, eta_min=1e-6)
+    warmup_scheduler = LinearLR(
+        optimizer,
+        start_factor=1e-6,
+        end_factor=1.0,
+        total_iters=warmup_steps,
+    )
+    cosine_scheduler = CosineAnnealingLR(
+        optimizer,
+        T_max=cosine_steps,
+        eta_min=1e-6,
+    )
     scheduler = SequentialLR(
         optimizer,
         schedulers=[warmup_scheduler, cosine_scheduler],
@@ -133,6 +143,7 @@ def train(config):
     latest_model_path = os.path.join(BASE_DIR, 'outputs', 'checkpoints', 'convnext_latest.pth')
     best_model_path = os.path.join(BASE_DIR, 'outputs', 'checkpoints', 'convnext_best.pth')
     os.makedirs(os.path.dirname(latest_model_path), exist_ok=True)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
 
     start_epoch = 1
     best_page_acc = 0.0
@@ -165,7 +176,7 @@ def train(config):
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            scheduler.step()
+            scheduler.step()                       # iteration 级调度
 
             running_loss += loss.item() * inputs.size(0)
             _, pred = torch.max(outputs, 1)
@@ -183,7 +194,7 @@ def train(config):
         epoch_acc = correct_train / total_train
         print(f"Epoch {epoch} Train | Loss: {epoch_loss:.4f} | Char Acc: {epoch_acc:.4f}")
 
-        # ========== 页面级评估 ==========
+        # ========== 页面级评估（每 EVAL_FREQUENCY 轮一次） ==========
         test_page_acc = 0.0
         if epoch % EVAL_FREQUENCY == 0:
             test_page_acc = evaluate_page_level(model, metadata_file, global_label_map, DEVICE)
@@ -204,6 +215,7 @@ def train(config):
                 no_improve_count += 1
                 print(f"⚠️ 验证未提升 ({no_improve_count}/{PATIENCE})")
 
+        # 保存最新完整检查点
         torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
@@ -212,10 +224,17 @@ def train(config):
             'best_acc': best_page_acc,
         }, latest_model_path)
 
+        # 写日志
         with open(log_path, 'a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow([epoch, f"{epoch_loss:.4f}", f"{epoch_acc:.4f}", f"{test_page_acc:.4f}"])
+            writer.writerow([
+                epoch,
+                f"{epoch_loss:.4f}",
+                f"{epoch_acc:.4f}",
+                f"{test_page_acc:.4f}",
+            ])
 
+        # ========== 早停 ==========
         if no_improve_count >= PATIENCE:
             print(f"[EARLY STOP] 验证准确率连续 {PATIENCE} 次未提升，停止训练。")
             break

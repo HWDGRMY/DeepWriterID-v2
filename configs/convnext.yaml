@@ -1,12 +1,9 @@
-# ConvNeXt V2-Femto 架构升级配置（加载预训练权重版）
-# 论文参考：Woo et al., ConvNeXt V2, CVPR 2023, Table 9（Femto 小模型配置）
-
 model:
   name: "convnextv2_femto"
   num_classes: 1019
   feature_dim: 512
-  pretrained: true              # 加载 ImageNet-1K 预训练权重
-                                # 注意：第一层卷积因通道数不同将随机初始化
+  pretrained: true
+  pretrained_path: "pretrained/convnextv2_femto.safetensors"
 
 data:
   image_size: 96
@@ -15,10 +12,9 @@ data:
 
 training:
   epochs: 50
-  lr_base: 5e-5                 # 基准学习率（对应 batch=256）
-                                # 实际 lr = lr_base × batch_size / 256
-  weight_decay: 0.05            # 加载预训练后，权重衰减回到论文默认值
-  warmup_epochs: 1              # 预训练已提供良好初始化，warmup 缩短
+  lr_base: 0.001
+  weight_decay: 0.05
+  warmup_epochs: 1
   eval_frequency: 5
   patience: 10
   drop_path: 0.1
