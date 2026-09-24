@@ -7,7 +7,6 @@ import sys
 import argparse
 import yaml
 
-# 把项目根目录加到 sys.path，并切换工作目录
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 

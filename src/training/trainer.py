@@ -1,5 +1,13 @@
 """
-ConvNeXt V2 训练器：保留 v1.0 的页面级投票评估逻辑，替换骨干与优化策略。
+ConvNeXt V2 训练器：加载 ImageNet 预训练权重，保留 v1.0 的页面级投票评估逻辑。
+
+关键设计：
+- 预训练：加载 timm 提供的 convnextv2_femto ImageNet-1K 权重
+- 优化器：AdamW(β₁=0.9, β₂=0.999)
+- 学习率：线性缩放 lr = lr_base × batch_size / 256
+- 调度器：Warmup（1 epoch）+ 余弦退火，iteration 级 step
+- 评估：每 EVAL_FREQUENCY 轮做一次页面级投票
+- 早停：连续 PATIENCE 次验证未提升则停止
 """
 
 import os
@@ -16,29 +24,42 @@ from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.data.dataset import WPTTDataset
-from src.models.backbone import ConvNeXtBackbone          # 改动1: 换模型
+from src.models.backbone import ConvNeXtBackbone
 from src.evaluation.evaluator import evaluate_page_level
 
 
 def _pad_to_96(tensor):
-    """v1.0 继承：54×54 → 96×96，ConvNeXt 输入需要更大尺寸。"""
+    """v1.0 继承：54×54 → 96×96。"""
     pad = (21, 21, 21, 21)
     return torch.nn.functional.pad(tensor, pad, mode='constant', value=0)
 
 
 def train(config):
+    # ========== 读取超参数 ==========
     BATCH_SIZE = config.get('batch_size', 128)
     EPOCHS = config.get('epochs', 50)
-    INITIAL_LR = config.get('initial_lr', 0.0001)
+    LR_BASE = config.get('lr_base', 5e-5)
+    INITIAL_LR = LR_BASE * BATCH_SIZE / 256
     WEIGHT_DECAY = config.get('weight_decay', 0.05)
-    WARMUP_EPOCHS = config.get('warmup_epochs', 5)
-    EVAL_FREQUENCY = config.get('eval_frequency', 5)      # v1.0 设计：每 5 轮评估一次
-    PATIENCE = config.get('patience', 10)                 # 早停
+    WARMUP_EPOCHS = config.get('warmup_epochs', 1)
+    EVAL_FREQUENCY = config.get('eval_frequency', 5)
+    PATIENCE = config.get('patience', 10)
+    DROP_PATH = config.get('drop_path', 0.1)
+    DROPOUT_HEAD = config.get('dropout_head', 0.3)
+    DROPOUT_CLASSIFIER = config.get('dropout_classifier', 0.4)
+    PRETRAINED = config.get('pretrained', True)
+
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
 
+    print(f"🔧 配置: batch={BATCH_SIZE}, lr={INITIAL_LR:.6f}, "
+          f"pretrained={PRETRAINED}, warmup={WARMUP_EPOCHS}, "
+          f"drop_path={DROP_PATH}, dropout_head={DROPOUT_HEAD}, "
+          f"dropout_classifier={DROPOUT_CLASSIFIER}")
+
+    # ========== 数据路径 ==========
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     metadata_file = os.path.join(BASE_DIR, 'data', 'features', 'metadata.csv')
 
@@ -49,6 +70,7 @@ def train(config):
     global_label_map = {wid: idx for idx, wid in enumerate(all_writer_ids)}
     num_classes = len(global_label_map)
 
+    # ========== 数据增强与 Dataset ==========
     train_transform = transforms.Compose([
         transforms.RandomRotation(5),
         transforms.RandomAffine(0, translate=(0.05, 0.05)),
@@ -69,19 +91,24 @@ def train(config):
         multiprocessing_context='spawn'
     )
 
-    # ========== 改动2: 换 ConvNeXt V2-Femto ==========
+    # ========== 模型（加载预训练权重） ==========
     model = ConvNeXtBackbone(
         num_classes=num_classes,
         in_chans=64,
         feature_dim=512,
-        drop_path_rate=0.1,
+        drop_path_rate=DROP_PATH,
+        dropout_head=DROPOUT_HEAD,
+        dropout_classifier=DROPOUT_CLASSIFIER,
+        pretrained=PRETRAINED,
     ).to(DEVICE)
     total_params = sum(p.numel() for p in model.parameters())
     print(f"🧠 模型参数量: {total_params / 1e6:.2f}M")
+    if PRETRAINED:
+        print(f"📦 已加载 ImageNet 预训练权重（第一层卷积因 64 通道将随机初始化）")
 
     criterion = nn.CrossEntropyLoss()
 
-    # ========== 改动3: AdamW + Warmup + 余弦退火 ==========
+    # ========== 优化器与调度器 ==========
     optimizer = optim.AdamW(
         model.parameters(),
         lr=INITIAL_LR,
@@ -91,7 +118,7 @@ def train(config):
 
     steps_per_epoch = len(train_loader)
     warmup_steps = WARMUP_EPOCHS * steps_per_epoch
-    cosine_steps = (EPOCHS - WARMUP_EPOCHS) * steps_per_epoch
+    cosine_steps = max((EPOCHS - WARMUP_EPOCHS) * steps_per_epoch, 1)
 
     warmup_scheduler = LinearLR(optimizer, start_factor=1e-6, end_factor=1.0, total_iters=warmup_steps)
     cosine_scheduler = CosineAnnealingLR(optimizer, T_max=cosine_steps, eta_min=1e-6)
@@ -101,6 +128,7 @@ def train(config):
         milestones=[warmup_steps],
     )
 
+    # ========== 路径与状态 ==========
     log_path = os.path.join(BASE_DIR, 'outputs', 'logs', 'convnext_training_log.csv')
     latest_model_path = os.path.join(BASE_DIR, 'outputs', 'checkpoints', 'convnext_latest.pth')
     best_model_path = os.path.join(BASE_DIR, 'outputs', 'checkpoints', 'convnext_best.pth')
@@ -110,7 +138,7 @@ def train(config):
     best_page_acc = 0.0
     no_improve_count = 0
 
-    # 断点续训
+    # ========== 断点续训 ==========
     if os.path.exists(latest_model_path):
         checkpoint = torch.load(latest_model_path, map_location=DEVICE)
         model.load_state_dict(checkpoint['model_state_dict'])
@@ -122,6 +150,7 @@ def train(config):
     else:
         print("🆕 未找到检查点，将从 Epoch 1 开始全新训练。")
 
+    # ========== 训练主循环 ==========
     for epoch in range(start_epoch, EPOCHS + 1):
         model.train()
         running_loss = 0.0
@@ -136,7 +165,7 @@ def train(config):
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            scheduler.step()                       # iteration 级调度
+            scheduler.step()
 
             running_loss += loss.item() * inputs.size(0)
             _, pred = torch.max(outputs, 1)
@@ -154,7 +183,7 @@ def train(config):
         epoch_acc = correct_train / total_train
         print(f"Epoch {epoch} Train | Loss: {epoch_loss:.4f} | Char Acc: {epoch_acc:.4f}")
 
-        # ========== 页面级投票评估（v1.0 核心逻辑，每 EVAL_FREQUENCY 轮一次）==========
+        # ========== 页面级评估 ==========
         test_page_acc = 0.0
         if epoch % EVAL_FREQUENCY == 0:
             test_page_acc = evaluate_page_level(model, metadata_file, global_label_map, DEVICE)
@@ -175,7 +204,6 @@ def train(config):
                 no_improve_count += 1
                 print(f"⚠️ 验证未提升 ({no_improve_count}/{PATIENCE})")
 
-        # 保存最新完整检查点
         torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
@@ -188,7 +216,6 @@ def train(config):
             writer = csv.writer(f)
             writer.writerow([epoch, f"{epoch_loss:.4f}", f"{epoch_acc:.4f}", f"{test_page_acc:.4f}"])
 
-        # 早停
         if no_improve_count >= PATIENCE:
             print(f"[EARLY STOP] 验证准确率连续 {PATIENCE} 次未提升，停止训练。")
             break
