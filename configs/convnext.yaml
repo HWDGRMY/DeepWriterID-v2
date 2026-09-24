@@ -1,20 +1,21 @@
 model:
-  name: "convnextv2_tiny"
+  name: "convnextv2_femto"
   num_classes: 1019
   feature_dim: 512
 
 data:
-  image_size: 54
-  batch_size: 128            # 根据显存调整，原 DCNN 用 256
-  num_workers: 6
+  image_size: 96
+  batch_size: 128
+  num_workers: 8
 
 training:
   epochs: 50
-  initial_lr: 0.0001         # 论文 Tiny 是 8e-4 (batch=1024)，按线性缩放
-  weight_decay: 0.05         # 论文推荐值
-  warmup_epochs: 5           # 论文用 40，小数据适当减少
-  cosine_T_max: 50
-  drop_path: 0.1             # 论文 Tiny 用 0.2，小数据用 0.1 防过拟合
+  initial_lr: 0.0001
+  weight_decay: 0.05
+  warmup_epochs: 5
+  eval_frequency: 5      # 每 5 轮评估一次（v1.0 设计）
+  patience: 10           # 早停
+  drop_path: 0.1
   device: "cuda"
 
 checkpoint:
