@@ -1,6 +1,6 @@
 import numpy as np
 
-def detect_corners(points, k=2, threshold=180.0):
+def detect_corners(points, k=2, threshold=3.0):
     corners_idx = []
     n = len(points)
     if n < 2 * k + 1:
